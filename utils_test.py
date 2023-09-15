@@ -4,6 +4,7 @@ import ast
 import copy
 # import tiktoken
 import json
+import re
 def test_puzzle(test_fg):
     test_fg= "from typing import *\n"+test_fg
     try:
@@ -41,9 +42,8 @@ def judge_parallel(src_codes, timeout=10., max_workers=10):
     return [code in successes for code in src_codes]
 
 
-prompt_solve_puzzle='''You will be given a function and its docstring. Respond only in code with a correct, efficient implementation of the function.
-You need to generate the correct solutions (g), for the Problem 3 that satisfies the condition f(g()) == True.
-Problem 0:
+liste_pb='''
+
 ```
 def f(stamps: List[int], target=80, max_stamps=4, options=[10, 32, 8]) -> bool:
     """Find a selection of at most max_stamps stamps whose total worth is the target value."""
@@ -61,7 +61,63 @@ def g(target = 80, max_stamps = 4, options = [10, 32, 8]):
                 return list(c)
 assert f(g())
 ```
-Problem 1:
+''' 
+
+
+# prompt_solve_puzzle='''You will be given a function and its docstring. Respond only in code with a correct, efficient implementation of the function.
+# You need to generate the correct solutions (g), for the Problem 3 that satisfies the condition f(g()) == True.
+# Problem 1:
+# ```
+# from typing import*
+# def f(ans: List[List[int]], target=2) -> bool:
+#     """
+#     Find a list of pairs of integers where the number of pairs in which the second number is more than
+#     two greater than the first number is a given constant
+#     """
+#     for i in range(len(ans)):
+#         a, b = ans[i]
+#         if b - a >= 2:
+#             target -= 1
+#     return target == 0
+# ```
+# Solution 1:
+# ```
+# def g(target = 2):
+#     return [[0, 2]] * target 
+# assert f(g()) == True
+# ```
+# Problem 2:
+# ```
+# def f(n: int, v=313946483, w=806690290) -> bool:
+#     """Find the smallest n such that if v is tripled n times and w is doubled n times, v exceeds w."""
+#     for i in range(n):
+#         assert v <= w
+#         v *= 3
+#         w *= 2
+#     return v > w
+# ```
+# Solution 2:
+# ```
+# def g(v = 313946483, w = 806690290):
+#     i = 0
+#     while v <= w:
+#         v *= 3
+#         w *= 2
+#         i += 1
+#     return i 
+# assert f(g()) == True
+# ```
+# Problem 3:
+# ```
+# {pb}
+# ```
+# Solution 3:
+# ```
+# {g_firstline}'''
+
+prompt_solve_puzzle='''You will be given a function and its docstring. Respond only in code with a correct, efficient implementation of the function.
+You need to generate the correct solutions (g), for the Problem 1 that satisfies the condition f(g()) == True.
+ Problem 0:
 ```
 from typing import*
 def f(ans: List[List[int]], target=2) -> bool:
@@ -75,41 +131,69 @@ def f(ans: List[List[int]], target=2) -> bool:
             target -= 1
     return target == 0
 ```
-Solution 1:
+ Solution 0:
 ```
 def g(target = 2):
     return [[0, 2]] * target 
 assert f(g()) == True
 ```
-Problem 2:
-```
-def f(n: int, v=313946483, w=806690290) -> bool:
-    """Find the smallest n such that if v is tripled n times and w is doubled n times, v exceeds w."""
-    for i in range(n):
-        assert v <= w
-        v *= 3
-        w *= 2
-    return v > w
-```
-Solution 2:
-```
-def g(v = 313946483, w = 806690290):
-    i = 0
-    while v <= w:
-        v *= 3
-        w *= 2
-        i += 1
-    return i 
-assert f(g()) == True
-```
-Problem 3:
+ Problem 1:
 ```
 {pb}
 ```
-Solution 3:
+ Solution 1:
 ```
-{g_firstline}
-'''
+{g_firstline}'''
+# prompt_solve_puzzle='''You will be given a function and its docstring. Respond only in code with a correct, efficient implementation of the function.
+# You need to generate the correct solutions (g), for the Problem 3 that satisfies the condition f(g()) == True.
+# Problem 1:
+# ```
+# from typing import*
+# def f(ans: List[List[int]], target=2) -> bool:
+#     """
+#     Find a list of pairs of integers where the number of pairs in which the second number is more than
+#     two greater than the first number is a given constant
+#     """
+#     for i in range(len(ans)):
+#         a, b = ans[i]
+#         if b - a >= 2:
+#             target -= 1
+#     return target == 0
+# ```
+# Solution 1:
+# ```
+# def g(target = 2):
+#     return [[0, 2]] * target 
+# assert f(g()) == True
+# ```
+# Problem 2:
+# ```
+# def f(n: int, v=313946483, w=806690290) -> bool:
+#     """Find the smallest n such that if v is tripled n times and w is doubled n times, v exceeds w."""
+#     for i in range(n):
+#         assert v <= w
+#         v *= 3
+#         w *= 2
+#     return v > w
+# ```
+# Solution 2:
+# ```
+# def g(v = 313946483, w = 806690290):
+#     i = 0
+#     while v <= w:
+#         v *= 3
+#         w *= 2
+#         i += 1
+#     return i 
+# assert f(g()) == True
+# ```
+# Problem 3:
+# ```
+# {pb}
+# ```
+# Solution 3:
+# ```
+# {g_firstline}'''
 
 
 def pass_at_k(n, c, k):
@@ -186,6 +270,16 @@ def merge_Q_and_A(liste_fg):
     return judge_srcs
 
 
+
+def remove_example_line(code: str) -> str:
+    pattern = r'(""".*?)(Example:.*?\n)(.*?""")'
+    replacement = r'\1"""\n'
+
+    # Use re.sub to remove the 'Example:' line
+    modified_code = re.sub(pattern, replacement, code, flags=re.DOTALL)
+
+    return modified_code
+
 def preprocessing_P3_no_test(split: str = "train", n_token_max: int =512, load_embedding = False,debug=False) -> list[dict]:
     """
     dl puzzles from P3 dataset and give train or test puzzles
@@ -208,7 +302,7 @@ def preprocessing_P3_no_test(split: str = "train", n_token_max: int =512, load_e
     puzzles_set=[]
     generated_programs=[]
     for i in puzzles:
-        if i["name"][:-2] in data_split[split] and i["sol_bodies"]!=[]:
+        if i["name"][:-2] in data_split[split]:
             puzzle_2_add={}
             puzzle_2_add["f"] = add_return_bool_2_f(return_f(i))
             puzzle_2_add["g"] = return_g(i,puzzle_2_add["f"])

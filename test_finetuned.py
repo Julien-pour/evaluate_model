@@ -3,10 +3,14 @@ import argparse
 
 parser = argparse.ArgumentParser(description="Example script for argument parsing")
 parser.add_argument("-a", "--arg_name", type=str, help="name baseline")
+parser.add_argument("-p", "--path_dir", type=str, help="path to evaluate_model")
+
 parser.add_argument("-b", "--arg_path", type=str, help="path baseline")
 parser.add_argument("-c", "--arg_lr_sched", type=str, help="schedule lr")
 parser.add_argument("-d", "--arg_warm", type=float, help="warmup")
-parser.add_argument("-e", "--arg_sol", type=bool, help="wheter to train on sol or prob+sol")
+parser.add_argument("-e", "--arg_epoch", type=int, help="number epoch")
+parser.add_argument("-s", "--arg_step", type=int, help="number of step")
+parser.add_argument("-q", "--arg_bs", type=int, help=" bs")
 
 
 
@@ -33,7 +37,7 @@ from datasets import load_dataset,concatenate_datasets
 from tqdm import tqdm
 import json
 
-from peft import LoraConfig
+# from peft import LoraConfig
 import numpy as np
 from utils_test import pass_at_k,prompt_solve_puzzle,test_puzzle,judge_parallel,preprocessing_P3_no_test
 
@@ -46,28 +50,35 @@ if args.arg_name:
 path_save="/projets/flowers/julien/ELM/"+name+".json"
 name_json=name+"_llama_passK"
 
-path_train= "/projets/flowers/julien/evaluate_model/run_saved/imgep_smart/step_499_1/maps.json"#"/projets/flowers/julien/evaluate_model/run_saved/elm/step_499_1/maps.json" # put path here
+# path_train= "/projets/flowers/julien/evaluate_model/run_saved/imgep_smart/step_499_1/maps.json"#"/projets/flowers/julien/evaluate_model/run_saved/elm/step_499_1/maps.json" # put path here
 if args.arg_path:
     path_train = args.arg_path
+
+run_name_wandb=path_train.split("run_saved/")[1].split("/step")[0]
+
 dataset = load_dataset("json", data_files=path_train, split="train")
 path_real_trainset = "/projets/flowers/julien/evaluate_model/preprocess_p3_emb.json"
 dataset_r = load_dataset("json", data_files=path_real_trainset, split="train")
 
-dataset = dataset.train_test_split(test_size=0.005)
-cat_datasets=concatenate_datasets([dataset["train"],dataset_r])
-model_id="openlm-research/open_llama_3b_v2"#"codellama/CodeLlama-7b-hf"
-tokenizer = LlamaTokenizer.from_pretrained(model_id)
+dataset_r = dataset_r.train_test_split(test_size=0.005)
+cat_datasets=concatenate_datasets([dataset,dataset_r["train"]])
+# model_id="openlm-research/open_llama_3b_v2"#"codellama/CodeLlama-7b-hf"
+# tokenizer = LlamaTokenizer.from_pretrained(model_id)
+model_id = "bigcode/tiny_starcoder_py"
+
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
 
 # tokenizer = AutoTokenizer.from_pretrained(model_id,trust_remote_code=True,padding=True)
 tokenizer.padding_side='right'
 tokenizer.pad_token = tokenizer.eos_token
 
-quantization_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_use_double_quant=False,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype="bfloat16"#torch.bfloat16
-)
+# quantization_config = BitsAndBytesConfig(
+#     load_in_4bit=True,
+#     bnb_4bit_use_double_quant=False,
+#     bnb_4bit_quant_type="nf4",
+#     bnb_4bit_compute_dtype="bfloat16"#torch.bfloat16
+# )
 
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
@@ -104,31 +115,39 @@ def formatting_prompts_func(example,prompt_solve_puzzle=prompt_solve_puzzle):
         output_texts.append(full_prompt)
     return output_texts
 
-lr_scheduler_type= "linear"
+lr_scheduler_type= "cosine"
 if args.arg_lr_sched:
     lr_scheduler_type= args.arg_lr_sched
 warmup_ratio=0.2
-if args.arg_warm:
-    warmup_ratio= args.arg_warm
 
-response_template = 'Problem 1:'#"Solution 1:"
+
+# response_template = 'Problem 1:'#"Solution 1:"
 
 # if args.arg_sol:
-response_template= "Solution 1:"
+# response_template= "Solution 1:" # for llama
+response_template= " Solution 1:"
 
 collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer,mlm=False)
+
+
+num_train_epochs=5
+if args.arg_epoch:
+    num_train_epochs= args.arg_epoch
+run_name_wandb += "Epoch"+str(num_train_epochs)
+run_name_wandb+="starcode116m"
+
 training_arguments=TrainingArguments(
     per_device_train_batch_size=4,
     per_device_eval_batch_size=4,
     evaluation_strategy="steps",
-    gradient_accumulation_steps=3,
-
+    gradient_accumulation_steps=4,
+    run_name= run_name_wandb,
     # warmup_steps=2,
     save_strategy="no",
     warmup_ratio=warmup_ratio,
     lr_scheduler_type=lr_scheduler_type,
-    max_steps=500,
-    # num_train_epochs=2,
+    # max_steps=500,
+    num_train_epochs=num_train_epochs,
     # weight_decay=0.001,
     learning_rate=3e-5,
     bf16=True,
@@ -148,7 +167,7 @@ training_arguments=TrainingArguments(
 trainer = SFTTrainer(
     model,#"EleutherAI/gpt-neo-125m",
     train_dataset=cat_datasets,
-    eval_dataset=dataset["test"],
+    eval_dataset=dataset_r["test"],
     # dataset_text_field="program_str",
 
     formatting_func=formatting_prompts_func,
@@ -169,8 +188,8 @@ if True:  # OOD
     gc.collect()
 
     # testing
-
-    tokenizer = LlamaTokenizer.from_pretrained(output_dir,trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(output_dir)#model_id)
+    # tokenizer = LlamaTokenizer.from_pretrained(output_dir,trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
         output_dir,
         torch_dtype=torch.bfloat16,
@@ -188,7 +207,7 @@ if True:  # OOD
 
     torch._dynamo.config.suppress_errors = True
 
-    testset= preprocessing_P3_no_test(split="test",n_token_max=256)
+    testset= preprocessing_P3_no_test(split="test",n_token_max=1024)
 
         
     list_trainset= [[x["program_str"],x["g_firstline"]] for x in testset]
@@ -236,7 +255,7 @@ if True:  # OOD
             len_prompt = inputs["input_ids"].shape[1]
             list_puzzle_gen=[[] for _ in range(len(list_prompt))]
             for idx_gen in range(num_return_sequences):
-                outputs = model.generate(**inputs,max_new_tokens=400,do_sample=True, temperature=0.8)
+                outputs = model.generate(**inputs,max_new_tokens=512,do_sample=True, temperature=0.8)
                 generated_texts = tokenizer.batch_decode(outputs[:,len_prompt:], skip_special_tokens=True)
                 for idx_out_gen in range(len(outputs)):
                     list_puzzle_gen[idx_out_gen].append(generated_texts[idx_out_gen])
@@ -295,5 +314,5 @@ if True:  # OOD
         dic_passk["pass_10"]= float(np.sum(list_passk_10))
 
         json_content=[dic_passk]
-        with open(name_json+".json", "w") as outfile:
+        with open(name_json+"e"+str(num_train_epochs)+".json", "w") as outfile:
             json.dump(json_content,outfile,indent=4)
