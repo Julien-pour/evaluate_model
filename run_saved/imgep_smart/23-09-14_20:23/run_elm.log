@@ -1,0 +1,5 @@
+[2023-09-14 20:23:26,003][langchain.chat_models.openai][WARNING] - WARNING! top_p is not default parameter.
+                    top_p was transferred to model_kwargs.
+                    Please confirm that top_p is what you intended.
+[2023-09-14 20:23:28,595][torch.distributed.nn.jit.instantiator][INFO] - Created a temporary directory at /tmp/tmpa5xwih3z
+[2023-09-14 20:23:28,595][torch.distributed.nn.jit.instantiator][INFO] - Writing /tmp/tmpa5xwih3z/_remote_module_non_scriptable.py

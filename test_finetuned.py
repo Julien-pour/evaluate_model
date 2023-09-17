@@ -2,21 +2,22 @@
 import argparse
 
 parser = argparse.ArgumentParser(description="Example script for argument parsing")
-parser.add_argument("-a", "--arg_name", type=str, help="name baseline")
-parser.add_argument("-p", "--path_dir", type=str, help="path to evaluate_model")
+parser.add_argument("-z", "--base_path", type=str, help="path to git project evaluate_model",default="/media/data/flowers/evaluate_model/")
 
-parser.add_argument("-b", "--arg_path", type=str, help="path baseline")
-parser.add_argument("-c", "--arg_lr_sched", type=str, help="schedule lr")
-parser.add_argument("-d", "--arg_warm", type=float, help="warmup")
-parser.add_argument("-e", "--arg_epoch", type=int, help="number epoch")
-parser.add_argument("-s", "--arg_step", type=int, help="number of step")
-parser.add_argument("-q", "--arg_bs", type=int, help=" bs")
+parser.add_argument("-a", "--arg_name", type=str, help="name to save")
+# parser.add_argument("-p", "--path_dir", type=str, help="path to evaluate_model")
+
+parser.add_argument("-p", "--arg_path", type=str, help="path baseline maps.json (trainset)")
+parser.add_argument("-e", "--arg_epoch", type=int, help="number epoch",default=2)
+parser.add_argument("-n", "--arg_n_train", type=int, help="number of trainset")
+parser.add_argument("-b", "--arg_bs", type=int, help=" bs",default=4)
+parser.add_argument("-c", "--arg_bs_test", type=int, help=" bs test",default=64)
 
 
 
 args = parser.parse_args()
 
-
+args.base_path
 
 
 
@@ -24,13 +25,12 @@ args = parser.parse_args()
 from utils_test import remove_example_line
 import os
 
-os.environ['HF_DATASETS_CACHE'] = "/projets/flowers/julien/hf/datasets"
-os.environ['TRANSFORMERS_CACHE'] = "/projets/flowers/julien/models/"
+os.environ['HF_DATASETS_CACHE'] = args.base_path+"hf/datasets"
+os.environ['TRANSFORMERS_CACHE'] = args.base_path+"hf/models"
 
 os.environ['TOKENIZERS_PARALLELISM'] = "True"
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig,TrainingArguments,LlamaTokenizer
-from utils_test import pass_at_k,prompt_solve_puzzle
+from transformers import AutoTokenizer, AutoModelForCausalLM,TrainingArguments,LlamaTokenizer
 
 from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
 from datasets import load_dataset,concatenate_datasets
@@ -39,7 +39,7 @@ import json
 
 # from peft import LoraConfig
 import numpy as np
-from utils_test import pass_at_k,prompt_solve_puzzle,test_puzzle,judge_parallel,preprocessing_P3_no_test
+from utils_test import pass_at_k,prompt_solve_puzzle,judge_parallel,preprocessing_P3_no_test
 
 import gc
 
@@ -47,26 +47,28 @@ name="IMGEP_smart"
 if args.arg_name:
     name=args.arg_name
     
-path_save="/projets/flowers/julien/ELM/"+name+".json"
-name_json=name+"_llama_passK"
+path_save=args.base_path+"save_results/"+name+".json"
+name_json=name+"_llama_"
 
-# path_train= "/projets/flowers/julien/evaluate_model/run_saved/imgep_smart/step_499_1/maps.json"#"/projets/flowers/julien/evaluate_model/run_saved/elm/step_499_1/maps.json" # put path here
 if args.arg_path:
     path_train = args.arg_path
+    
 
 run_name_wandb=path_train.split("run_saved/")[1].split("/step")[0]
-
+run_name_wandb = run_name_wandb.replace("/","_")
 dataset = load_dataset("json", data_files=path_train, split="train")
-path_real_trainset = "/projets/flowers/julien/evaluate_model/preprocess_p3_emb.json"
-dataset_r = load_dataset("json", data_files=path_real_trainset, split="train")
 
-dataset_r = dataset_r.train_test_split(test_size=0.005)
-cat_datasets=concatenate_datasets([dataset,dataset_r["train"]])
+path_P3_trainset = args.base_path +"preprocess_p3_emb.json"
+
+dataset_r = load_dataset("json", data_files=path_P3_trainset, split="train")
+
+# dataset_r = dataset_r.train_test_split(test_size=0.005)
+cat_datasets=concatenate_datasets([dataset,dataset_r])
 # model_id="openlm-research/open_llama_3b_v2"#"codellama/CodeLlama-7b-hf"
 # tokenizer = LlamaTokenizer.from_pretrained(model_id)
-model_id = "bigcode/tiny_starcoder_py"
-
-tokenizer = AutoTokenizer.from_pretrained(model_id)
+model_id = "openlm-research/open_llama_3b_v2"#"bigcode/tiny_starcoder_py"
+tokenizer = LlamaTokenizer.from_pretrained(model_id)
+# tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 
 # tokenizer = AutoTokenizer.from_pretrained(model_id,trust_remote_code=True,padding=True)
@@ -83,7 +85,6 @@ tokenizer.pad_token = tokenizer.eos_token
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
     torch_dtype=torch.bfloat16,
-
     # quantization_config=quantization_config,
     device_map="auto",
     trust_remote_code=True
@@ -116,8 +117,7 @@ def formatting_prompts_func(example,prompt_solve_puzzle=prompt_solve_puzzle):
     return output_texts
 
 lr_scheduler_type= "cosine"
-if args.arg_lr_sched:
-    lr_scheduler_type= args.arg_lr_sched
+
 warmup_ratio=0.2
 
 
@@ -130,17 +130,17 @@ response_template= " Solution 1:"
 collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer,mlm=False)
 
 
-num_train_epochs=5
+
 if args.arg_epoch:
     num_train_epochs= args.arg_epoch
 run_name_wandb += "Epoch"+str(num_train_epochs)
-run_name_wandb+="starcode116m"
+run_name_wandb+="llama3B"
 
 training_arguments=TrainingArguments(
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=4,
-    evaluation_strategy="steps",
-    gradient_accumulation_steps=4,
+    per_device_train_batch_size=args.arg_bs,
+    # per_device_eval_batch_size=4,
+    # evaluation_strategy="steps",
+    gradient_accumulation_steps=1,
     run_name= run_name_wandb,
     # warmup_steps=2,
     save_strategy="no",
@@ -155,7 +155,7 @@ training_arguments=TrainingArguments(
     gradient_checkpointing=False,
     logging_steps=1,
     output_dir="outputs",
-    optim="paged_adamw_32bit",
+    optim="adamw_torch",#"paged_adamw_32bit",
     max_grad_norm=0.3,
     # group_by_length=True,
     do_eval=True,
@@ -167,29 +167,34 @@ training_arguments=TrainingArguments(
 trainer = SFTTrainer(
     model,#"EleutherAI/gpt-neo-125m",
     train_dataset=cat_datasets,
-    eval_dataset=dataset_r["test"],
+    # eval_dataset=dataset_r["test"],
     # dataset_text_field="program_str",
 
     formatting_func=formatting_prompts_func,
     data_collator=collator,
-    max_seq_length=1200,
+    max_seq_length=100,
     args=training_arguments
 
 )
 trainer.train()
 
-output_dir = "/projets/flowers/julien/models/"+name
+output_dir = "/projets/flowers/julien/models/"+name # where to save model
 trainer.save_model(output_dir)
 if True:  # OOD
-
     del model
     del tokenizer
-    torch.cuda.empty_cache()
     gc.collect()
+    torch.cuda.empty_cache()
+    for obj in gc.get_objects():
+        if torch.is_tensor(obj):
+            obj.cpu()            
+    gc.collect()
+    torch.cuda.empty_cache()
+
 
     # testing
-    tokenizer = AutoTokenizer.from_pretrained(output_dir)#model_id)
-    # tokenizer = LlamaTokenizer.from_pretrained(output_dir,trust_remote_code=True)
+    # tokenizer = AutoTokenizer.from_pretrained(output_dir)#model_id)
+    tokenizer = LlamaTokenizer.from_pretrained(output_dir,trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
         output_dir,
         torch_dtype=torch.bfloat16,
@@ -199,7 +204,7 @@ if True:  # OOD
         trust_remote_code=True
     )
     tokenizer.padding_side='left'
-    tokenizer.pad_token = tokenizer.eos_token
+    # tokenizer.pad_token = tokenizer.eos_token
     model.eval()
     model.config.use_cache = True
     model=torch.compile(model)
@@ -229,7 +234,7 @@ if True:  # OOD
 
     list_puzzle=[]
 
-    bs=64
+    bs = args.arg_bs_test
     with torch.no_grad():
         
         for idx in tqdm(range(curr_idx,len(list_trainset),bs)): #len(dataset["test"])
@@ -314,5 +319,5 @@ if True:  # OOD
         dic_passk["pass_10"]= float(np.sum(list_passk_10))
 
         json_content=[dic_passk]
-        with open(name_json+"e"+str(num_train_epochs)+".json", "w") as outfile:
+        with open(name_json+"_e"+str(num_train_epochs)+".json", "w") as outfile:
             json.dump(json_content,outfile,indent=4)
