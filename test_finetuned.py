@@ -1,6 +1,5 @@
-
+print("aaaaaaa")
 import argparse
-
 parser = argparse.ArgumentParser(description="Example script for argument parsing")
 parser.add_argument("-z", "--base_path", type=str, help="path to git project evaluate_model",default="/media/data/flowers/evaluate_model/")
 
@@ -14,21 +13,26 @@ parser.add_argument("-b", "--arg_bs", type=int, help=" bs",default=4)
 parser.add_argument("-c", "--arg_bs_test", type=int, help=" bs test",default=64)
 
 
-
 args = parser.parse_args()
 
-args.base_path
 
 
 
 # test model
 from utils_test import remove_example_line
 import os
+os.environ['TRANSFORMERS_OFFLINE'] = "1"
+os.environ['WANDB_MODE'] = "offline"
+from key import wandb_key   
+os.environ['WANDB_API_KEY'] = wandb_key
+os.environ['WANDB_CACHE_DIR'] = args.base_path+"wandb_cache/"
+
 
 os.environ['HF_DATASETS_CACHE'] = args.base_path+"hf/datasets"
 os.environ['TRANSFORMERS_CACHE'] = args.base_path+"hf/models"
 
 os.environ['TOKENIZERS_PARALLELISM'] = "True"
+import wandb
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM,TrainingArguments,LlamaTokenizer
 
@@ -48,11 +52,13 @@ if args.arg_name:
     name=args.arg_name
     
 path_save=args.base_path+"save_results/"+name+".json"
-name_json=name+"_llama_"
+name_json=args.base_path+"save_results/"+name+"_opt"
 
 if args.arg_path:
     path_train = args.arg_path
     
+
+
 
 run_name_wandb=path_train.split("run_saved/")[1].split("/step")[0]
 run_name_wandb = run_name_wandb.replace("/","_")
@@ -66,8 +72,9 @@ dataset_r = load_dataset("json", data_files=path_P3_trainset, split="train")
 cat_datasets=concatenate_datasets([dataset,dataset_r])
 # model_id="openlm-research/open_llama_3b_v2"#"codellama/CodeLlama-7b-hf"
 # tokenizer = LlamaTokenizer.from_pretrained(model_id)
-model_id = "openlm-research/open_llama_3b_v2"#"bigcode/tiny_starcoder_py"
-tokenizer = LlamaTokenizer.from_pretrained(model_id)
+model_id = "facebook/opt-1.3b"#"openlm-research/open_llama_3b_v2"#"bigcode/tiny_starcoder_py"
+# model_id = args.base_path+model_id
+tokenizer = AutoTokenizer.from_pretrained(model_id,local_files_only=True)#LlamaTokenizer.from_pretrained(model_id,local_files_only=True)
 # tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 
@@ -87,7 +94,7 @@ model = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.bfloat16,
     # quantization_config=quantization_config,
     device_map="auto",
-    trust_remote_code=True
+    local_files_only=True
 )
 # peft_config = LoraConfig(
 #     r=32,
@@ -109,7 +116,8 @@ def formatting_prompts_func(example,prompt_solve_puzzle=prompt_solve_puzzle):
     output_texts = []
     # print(len(example['program_str']))
     for i in range(len(example['program_str'])):
-        puzzle= remove_example_line(example['program_str'][i])
+        # puzzle= remove_example_line(example['program_str'][i])
+        puzzle= example['program_str'][i]
         prompt_f=puzzle.split("def g(")[0]
         prompt_g= "def g(" + puzzle.split("def g(")[1]
         full_prompt = prompt_solve_puzzle.format(pb=prompt_f,g_firstline=prompt_g)
@@ -125,7 +133,8 @@ warmup_ratio=0.2
 
 # if args.arg_sol:
 # response_template= "Solution 1:" # for llama
-response_template= " Solution 1:"
+response_template= "Solution 1:"
+# list_tok_response_template=tokenizer(response_template)["input_ids"][1:]
 
 collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer,mlm=False)
 
@@ -134,14 +143,16 @@ collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenize
 if args.arg_epoch:
     num_train_epochs= args.arg_epoch
 run_name_wandb += "Epoch"+str(num_train_epochs)
-run_name_wandb+="llama3B"
+# run_name_wandb+="llama3B"
+
+learning_rate=2e-5
 
 training_arguments=TrainingArguments(
     per_device_train_batch_size=args.arg_bs,
     # per_device_eval_batch_size=4,
     # evaluation_strategy="steps",
     gradient_accumulation_steps=1,
-    run_name= run_name_wandb,
+    # run_name= run_name_wandb,
     # warmup_steps=2,
     save_strategy="no",
     warmup_ratio=warmup_ratio,
@@ -149,7 +160,7 @@ training_arguments=TrainingArguments(
     # max_steps=500,
     num_train_epochs=num_train_epochs,
     # weight_decay=0.001,
-    learning_rate=3e-5,
+    learning_rate=learning_rate,
     bf16=True,
     # bf16_full_eval=True,
     gradient_checkpointing=False,
@@ -163,6 +174,11 @@ training_arguments=TrainingArguments(
     # torch_compile=True
     
 )
+
+config = {"lr":learning_rate, "batch_size": args.arg_bs,"warmup_ratio":warmup_ratio,"model_name":"model_id", "epoch":args.arg_epoch}
+# config.update({"architecture": "", "depth": 34})
+name_wb= args.arg_name +"_e"+str(num_train_epochs)+"_llama3"
+wandb.init(name=name_wb,config=config,project="finetune llama")
 
 trainer = SFTTrainer(
     model,#"EleutherAI/gpt-neo-125m",
@@ -178,7 +194,7 @@ trainer = SFTTrainer(
 )
 trainer.train()
 
-output_dir = "/projets/flowers/julien/models/"+name # where to save model
+output_dir = model_id+name #args.base_path+"hf/datasets"+name # where to save model
 trainer.save_model(output_dir)
 if True:  # OOD
     del model
@@ -194,14 +210,14 @@ if True:  # OOD
 
     # testing
     # tokenizer = AutoTokenizer.from_pretrained(output_dir)#model_id)
-    tokenizer = LlamaTokenizer.from_pretrained(output_dir,trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(output_dir,local_files_only=True)#LlamaTokenizer.from_pretrained(output_dir,local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(
         output_dir,
         torch_dtype=torch.bfloat16,
 
         # quantization_config=quantization_config,
         device_map="auto",
-        trust_remote_code=True
+        local_files_only=True
     )
     tokenizer.padding_side='left'
     # tokenizer.pad_token = tokenizer.eos_token
@@ -212,7 +228,7 @@ if True:  # OOD
 
     torch._dynamo.config.suppress_errors = True
 
-    testset= preprocessing_P3_no_test(split="test",n_token_max=1024)
+    testset= preprocessing_P3_no_test(split="test",n_token_max=1024,path=args.base_path,tokenizer=tokenizer)
 
         
     list_trainset= [[x["program_str"],x["g_firstline"]] for x in testset]
@@ -321,3 +337,6 @@ if True:  # OOD
         json_content=[dic_passk]
         with open(name_json+"_e"+str(num_train_epochs)+".json", "w") as outfile:
             json.dump(json_content,outfile,indent=4)
+        wandb.log(dic_passk)
+
+wandb.finish()

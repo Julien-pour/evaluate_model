@@ -117,7 +117,7 @@ assert f(g())
 
 prompt_solve_puzzle='''You will be given a function and its docstring. Respond only in code with a correct, efficient implementation of the function.
 You need to generate the correct solutions (g), for the Problem 1 that satisfies the condition f(g()) == True.
- Problem 0:
+Problem 0:
 ```
 from typing import*
 def f(ans: List[List[int]], target=2) -> bool:
@@ -131,17 +131,17 @@ def f(ans: List[List[int]], target=2) -> bool:
             target -= 1
     return target == 0
 ```
- Solution 0:
+Solution 0:
 ```
 def g(target = 2):
     return [[0, 2]] * target 
 assert f(g()) == True
 ```
- Problem 1:
+Problem 1:
 ```
 {pb}
 ```
- Solution 1:
+Solution 1:
 ```
 {g_firstline}'''
 # prompt_solve_puzzle='''You will be given a function and its docstring. Respond only in code with a correct, efficient implementation of the function.
@@ -280,7 +280,7 @@ def remove_example_line(code: str) -> str:
 
     return modified_code
 
-def preprocessing_P3_no_test(split: str = "train", n_token_max: int =512, load_embedding = False,debug=False) -> list[dict]:
+def preprocessing_P3_no_test(split: str = "train", n_token_max: int =512, path=None,tokenizer=None) -> list[dict]:
     """
     dl puzzles from P3 dataset and give train or test puzzles
     split = "train" or "test"
@@ -289,13 +289,13 @@ def preprocessing_P3_no_test(split: str = "train", n_token_max: int =512, load_e
     os.environ['HF_DATASETS_CACHE'] = "/projets/flowers/julien/hf/datasets"
     os.environ['TRANSFORMERS_CACHE'] = "/projets/flowers/julien/models/"
     from transformers import AutoTokenizer
-    model_id="codellama/CodeLlama-7b-Python-hf"
+    model_id="facebook/opt-1.3b"#"codellama/CodeLlama-7b-Python-hf"
     tokenizer = AutoTokenizer.from_pretrained(model_id,trust_remote_code=True)
     import sys 
     sys.set_int_max_str_digits(10_000)
-    with open("/projets/flowers/julien/evaluate_model/puzzles.json",mode='r') as f:
+    with open(path+"puzzles.json",mode='r') as f:
         puzzles = json.load(f)
-    with open("/projets/flowers/julien/evaluate_model/split.json",mode='r') as f:
+    with open(path+"split.json",mode='r') as f:
         data_split = json.load(f)
     
     
