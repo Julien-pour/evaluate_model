@@ -5,6 +5,7 @@ import copy
 # import tiktoken
 import json
 import re
+import os
 def test_puzzle(test_fg):
     test_fg= "from typing import *\n"+test_fg
     try:
@@ -117,7 +118,8 @@ assert f(g())
 
 prompt_solve_puzzle='''You will be given a function and its docstring. Respond only in code with a correct, efficient implementation of the function.
 You need to generate the correct solutions (g), for the Problem 1 that satisfies the condition f(g()) == True.
-Problem 0:
+
+ Problem 0:
 ```
 from typing import*
 def f(ans: List[List[int]], target=2) -> bool:
@@ -131,17 +133,17 @@ def f(ans: List[List[int]], target=2) -> bool:
             target -= 1
     return target == 0
 ```
-Solution 0:
+ Solution 0:
 ```
 def g(target = 2):
     return [[0, 2]] * target 
 assert f(g()) == True
 ```
-Problem 1:
+ Problem 1:
 ```
 {pb}
 ```
-Solution 1:
+ Solution 1:
 ```
 {g_firstline}'''
 # prompt_solve_puzzle='''You will be given a function and its docstring. Respond only in code with a correct, efficient implementation of the function.
@@ -270,6 +272,31 @@ def merge_Q_and_A(liste_fg):
     return judge_srcs
 
 
+
+def just_remove_example_in_docstring(source_code: str) -> str:
+    puzzle_formated= source_code
+
+    # Parse the source code into an AST
+    tree = ast.parse(source_code)
+
+    # Extract the docstring from function f and remove it
+    f_docstring = None
+    for item in tree.body:
+        if isinstance(item, ast.FunctionDef) and item.name == 'f':
+            if ast.get_docstring(item):
+                f_docstring = ast.get_docstring(item)
+                if (f_docstring != None):
+                    delimiters ="example","Example","For example","Example:"
+                    regex_pattern = '|'.join(map(re.escape, delimiters))
+                    f_docstring_split = re.split(regex_pattern, f_docstring)[0]
+                    item.body[0].value.s = f_docstring_split
+    if (f_docstring != None):
+        # Convert the modified AST back to source code
+        puzzle_formated=ast.unparse(tree)
+    puzzle_formated=puzzle_formated.replace('""""""',"")
+    puzzle_formated = os.linesep.join([s for s in puzzle_formated.splitlines() if s.strip()]) # remove empty line
+
+    return puzzle_formated
 
 def remove_example_line(code: str) -> str:
     pattern = r'(""".*?)(Example:.*?\n)(.*?""")'

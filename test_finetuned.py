@@ -3,26 +3,47 @@ import argparse
 parser = argparse.ArgumentParser(description="Example script for argument parsing")
 parser.add_argument("-z", "--base_path", type=str, help="path to git project evaluate_model",default="/media/data/flowers/evaluate_model/")
 
-parser.add_argument("-a", "--arg_name", type=str, help="name to save")
 # parser.add_argument("-p", "--path_dir", type=str, help="path to evaluate_model")
 
-parser.add_argument("-p", "--arg_path", type=str, help="path baseline maps.json (trainset)")
+parser.add_argument("-p", "--arg_path_idx", type=int, help="path baseline maps.json (trainset)")
 parser.add_argument("-e", "--arg_epoch", type=int, help="number epoch",default=2)
 parser.add_argument("-n", "--arg_n_train", type=int, help="number of trainset")
 parser.add_argument("-b", "--arg_bs", type=int, help=" bs",default=4)
 parser.add_argument("-c", "--arg_bs_test", type=int, help=" bs test",default=64)
 
+parser.add_argument("-m", "--arg_model_id", type=str, help=" model")
+parser.add_argument("-s", "--arg_seed", type=str, help="seed ",default="00")
+parser.add_argument("-r", "--arg_rm_ex", type=bool, help=" remove example in docstring",default=True)
+parser.add_argument("-t", "--arg_mode", type=str, help=" model",default="train_eval")
+
 
 args = parser.parse_args()
+if args.arg_mode=="train_eval":
+    train_model=True
+    eval_model=True
+if args.arg_mode=="train":
+    train_model=True
+    eval_model=False 
+if args.arg_mode=="eval":
+    train_model=False
+    eval_model=True 
 
+if args.arg_epoch:
+    num_train_epochs= args.arg_epoch
+rm_ex=args.arg_rm_ex
+
+seed = str(args.arg_seed)
 
 
 
 # test model
-from utils_test import remove_example_line
+from utils_test import remove_example_line,just_remove_example_in_docstring
 import os
+os.environ["WANDB_DISABLED"] = "True"
+
 os.environ['TRANSFORMERS_OFFLINE'] = "1"
 os.environ['WANDB_MODE'] = "offline"
+os.environ["WANDB_PROJECT"] = "codegpt finetuned"
 from key import wandb_key   
 os.environ['WANDB_API_KEY'] = wandb_key
 os.environ['WANDB_CACHE_DIR'] = args.base_path+"wandb_cache/"
@@ -47,20 +68,44 @@ from utils_test import pass_at_k,prompt_solve_puzzle,judge_parallel,preprocessin
 
 import gc
 
-name="IMGEP_smart"
-if args.arg_name:
-    name=args.arg_name
-    
+
+path_train_idx = args.arg_path_idx
+
+# define all path
+if seed[0]=="2":
+    path_rd_gen= "run_saved/maps_2_rd_gen.json"
+    path_elm="run_saved/maps_2_elm.json"
+    path_elm_nlp="run_saved/maps_2_elm_NLP.json"
+    path_img_rd="run_saved/maps_2_imgep_random.json"
+    path_imgp_smart="run_saved/maps_2_imgep_smart.json"
+if seed[0]=="1":
+    path_rd_gen= "run_saved/maps_1_rd_gen.json"
+    path_elm="run_saved/maps_1_elm.json"
+    path_elm_nlp="run_saved/maps_1_elm_NLP.json"
+    path_img_rd="run_saved/maps_1_imgep_random.json"
+    path_imgp_smart="run_saved/maps_1_imgep_smart.json"
+if seed[0]=="3":
+    path_rd_gen= "run_saved/maps_3_rd_gen.json"
+    path_elm="run_saved/maps_3_elm.json"
+    path_elm_nlp="run_saved/maps_3_elm_NLP.json"
+    path_img_rd="run_saved/maps_3_imgep_random.json"
+    path_imgp_smart="run_saved/maps_3_imgep_smart.json"
+
+list_name=["rd_gen","elm","elm_NLP","imgep_random","imgep_smart"]
+
+list_all_path=[path_rd_gen, path_elm,path_elm_nlp,path_img_rd,path_imgp_smart]
+path_train = args.base_path 
+
+curr_train_path = list_all_path[path_train_idx]
+path_train += curr_train_path
+name = list_name[path_train_idx]
 path_save=args.base_path+"save_results/"+name+".json"
-name_json=args.base_path+"save_results/"+name+"_opt"
+print("\n=============\n ")
 
-if args.arg_path:
-    path_train = args.arg_path
-    
+print("path train ",path_train)
+print("\n=============\n ")
 
-
-
-run_name_wandb=path_train.split("run_saved/")[1].split("/step")[0]
+run_name_wandb=path_train.split("run_saved/")[1].split("/")[0]
 run_name_wandb = run_name_wandb.replace("/","_")
 dataset = load_dataset("json", data_files=path_train, split="train")
 
@@ -70,147 +115,143 @@ dataset_r = load_dataset("json", data_files=path_P3_trainset, split="train")
 
 # dataset_r = dataset_r.train_test_split(test_size=0.005)
 cat_datasets=concatenate_datasets([dataset,dataset_r])
+cat_datasets=cat_datasets.shuffle(seed=42)
+
 # model_id="openlm-research/open_llama_3b_v2"#"codellama/CodeLlama-7b-hf"
 # tokenizer = LlamaTokenizer.from_pretrained(model_id)
-model_id = "facebook/opt-1.3b"#"openlm-research/open_llama_3b_v2"#"bigcode/tiny_starcoder_py"
-# model_id = args.base_path+model_id
-tokenizer = AutoTokenizer.from_pretrained(model_id,local_files_only=True)#LlamaTokenizer.from_pretrained(model_id,local_files_only=True)
-# tokenizer = AutoTokenizer.from_pretrained(model_id)
+if args.arg_model_id:
+    model_id =   args.arg_model_id
 
 
-# tokenizer = AutoTokenizer.from_pretrained(model_id,trust_remote_code=True,padding=True)
-tokenizer.padding_side='right'
-tokenizer.pad_token = tokenizer.eos_token
+name_json=args.base_path+"save_results/"+name+model_id.split("/")[1]
+name_json_sol=args.base_path+"save_sol/"+name+model_id.split("/")[1]
 
-# quantization_config = BitsAndBytesConfig(
-#     load_in_4bit=True,
-#     bnb_4bit_use_double_quant=False,
-#     bnb_4bit_quant_type="nf4",
-#     bnb_4bit_compute_dtype="bfloat16"#torch.bfloat16
-# )
+if train_model:
+    tokenizer = LlamaTokenizer.from_pretrained(model_id,local_files_only=True)
 
-model = AutoModelForCausalLM.from_pretrained(
-    model_id,
-    torch_dtype=torch.bfloat16,
-    # quantization_config=quantization_config,
-    device_map="auto",
-    local_files_only=True
-)
-# peft_config = LoraConfig(
-#     r=32,
-#     lora_alpha=32,
-#     lora_dropout=0.05,
-#     target_modules=["qkv_proj"],
-#     bias="none",
-#     task_type="CAUSAL_LM",
-# )
-# model.config.use_cache = False
-# model=torch.compile(model)
-# torch._dynamo.config.suppress_errors = True
-# g_firstline = "def g("
-
-#training
+    tokenizer.padding_side='right'
+    tokenizer.pad_token = tokenizer.eos_token
 
 
-def formatting_prompts_func(example,prompt_solve_puzzle=prompt_solve_puzzle):
-    output_texts = []
-    # print(len(example['program_str']))
-    for i in range(len(example['program_str'])):
-        # puzzle= remove_example_line(example['program_str'][i])
-        puzzle= example['program_str'][i]
-        prompt_f=puzzle.split("def g(")[0]
-        prompt_g= "def g(" + puzzle.split("def g(")[1]
-        full_prompt = prompt_solve_puzzle.format(pb=prompt_f,g_firstline=prompt_g)
-        output_texts.append(full_prompt)
-    return output_texts
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        torch_dtype=torch.bfloat16,
+        # quantization_config=quantization_config,
+        device_map="auto",
+        local_files_only=True
+    )
+    #training
+    def formatting_prompts_func(example,prompt_solve_puzzle=prompt_solve_puzzle):
+        output_texts = []
+        # print(len(example['program_str']))
+        for i in range(len(example['program_str'])):
+            if rm_ex:
+                puzzle= just_remove_example_in_docstring(example['program_str'][i])
+            else:
+                puzzle= example['program_str'][i]
+            try:
+                prompt_f=puzzle.split("def g(")[0]
+                prompt_g= "def g(" + puzzle.split("def g(")[1]
+                full_prompt = prompt_solve_puzzle.format(pb=prompt_f,g_firstline=prompt_g)
+                output_texts.append(full_prompt)
+            except:
+                print("error in formatting_prompts_func idx",i)
+                print(example['program_str'][i])
+                print("======================")
+                print(puzzle)
+        return output_texts
 
-lr_scheduler_type= "cosine"
+    lr_scheduler_type= "cosine"
 
-warmup_ratio=0.2
+    warmup_ratio=0.1
 
 
-# response_template = 'Problem 1:'#"Solution 1:"
+    # response_template = 'Problem 1:'#"Solution 1:"
 
-# if args.arg_sol:
-# response_template= "Solution 1:" # for llama
-response_template= "Solution 1:"
-# list_tok_response_template=tokenizer(response_template)["input_ids"][1:]
+    # if args.arg_sol:
+    # response_template= "Solution 1:" # for llama
+    response_template= "Solution 1:"
+    # list_tok_response_template=tokenizer(response_template)["input_ids"][1:]
 
-collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer,mlm=False)
+    collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer,mlm=False)
 
 
 
-if args.arg_epoch:
-    num_train_epochs= args.arg_epoch
-run_name_wandb += "Epoch"+str(num_train_epochs)
-# run_name_wandb+="llama3B"
 
-learning_rate=2e-5
+    run_name_wandb += "Epoch"+str(num_train_epochs)
+    run_name_wandb+= model_id.split("/")[1]
 
-training_arguments=TrainingArguments(
-    per_device_train_batch_size=args.arg_bs,
-    # per_device_eval_batch_size=4,
-    # evaluation_strategy="steps",
-    gradient_accumulation_steps=1,
-    # run_name= run_name_wandb,
-    # warmup_steps=2,
-    save_strategy="no",
-    warmup_ratio=warmup_ratio,
-    lr_scheduler_type=lr_scheduler_type,
-    # max_steps=500,
-    num_train_epochs=num_train_epochs,
-    # weight_decay=0.001,
-    learning_rate=learning_rate,
-    bf16=True,
-    # bf16_full_eval=True,
-    gradient_checkpointing=False,
-    logging_steps=1,
-    output_dir="outputs",
-    optim="adamw_torch",#"paged_adamw_32bit",
-    max_grad_norm=0.3,
-    # group_by_length=True,
-    do_eval=True,
-    eval_steps=10,
-    # torch_compile=True
-    
-)
+    learning_rate=1e-5
 
-config = {"lr":learning_rate, "batch_size": args.arg_bs,"warmup_ratio":warmup_ratio,"model_name":"model_id", "epoch":args.arg_epoch}
-# config.update({"architecture": "", "depth": 34})
-name_wb= args.arg_name +"_e"+str(num_train_epochs)+"_llama3"
-wandb.init(name=name_wb,config=config,project="finetune llama")
+    training_arguments=TrainingArguments(
+        per_device_train_batch_size=args.arg_bs,
+        # per_device_eval_batch_size=4,
+        # evaluation_strategy="steps",
+        gradient_accumulation_steps=1,
+        run_name= run_name_wandb,
+        # warmup_steps=2,
+        save_strategy="no",
+        warmup_ratio=warmup_ratio,
+        lr_scheduler_type=lr_scheduler_type,
+        # max_steps=500,
+        num_train_epochs=num_train_epochs,
+        # weight_decay=0.001,
+        learning_rate=learning_rate,
+        bf16=True,
+        # bf16_full_eval=True,
+        gradient_checkpointing=False,
+        logging_steps=1,
+        output_dir="outputs",
+        optim="adamw_torch",#"paged_adamw_32bit",
+        max_grad_norm=0.3,
+        # group_by_length=True,
+        # do_eval=True,
+        # eval_steps=10,
+        # torch_compile=True
+        
+    )
 
-trainer = SFTTrainer(
-    model,#"EleutherAI/gpt-neo-125m",
-    train_dataset=cat_datasets,
-    # eval_dataset=dataset_r["test"],
-    # dataset_text_field="program_str",
+    config = {"lr":learning_rate, "batch_size": args.arg_bs,"warmup_ratio":warmup_ratio,"model_name":"model_id", "epoch":args.arg_epoch}
+    # config.update({"architecture": "", "depth": 34})
+    # wandb.init(#name=name_wb,
+    #            config=config,project="finetune llama")
 
-    formatting_func=formatting_prompts_func,
-    data_collator=collator,
-    max_seq_length=100,
-    args=training_arguments
 
-)
-trainer.train()
+    trainer = SFTTrainer(
+        model,#"EleutherAI/gpt-neo-125m",
+        tokenizer=tokenizer,
+        train_dataset=cat_datasets,
+        # eval_dataset=dataset_r["test"],
+        # dataset_text_field="program_str",
 
-output_dir = model_id+name #args.base_path+"hf/datasets"+name # where to save model
-trainer.save_model(output_dir)
-if True:  # OOD
-    del model
-    del tokenizer
-    gc.collect()
-    torch.cuda.empty_cache()
-    for obj in gc.get_objects():
-        if torch.is_tensor(obj):
-            obj.cpu()            
-    gc.collect()
-    torch.cuda.empty_cache()
+        formatting_func=formatting_prompts_func,
+        data_collator=collator,
+        max_seq_length=1100,
+        args=training_arguments
+
+    )
+    trainer.train()
+
+    output_dir = model_id+name+"e_"+str(num_train_epochs)+"_"+str(seed) #args.base_path+"hf/datasets"+name # where to save model
+    trainer.save_model(output_dir)
+
+if eval_model:  # OOD
+    output_dir = model_id+name+"e_"+str(num_train_epochs)+"_"+str(seed)
+    # del model
+    # del tokenizer
+    # gc.collect()
+    # torch.cuda.empty_cache()
+    # for obj in gc.get_objects():
+    #     if torch.is_tensor(obj):
+    #         obj.cpu()            
+    # gc.collect()
+    # torch.cuda.empty_cache()
 
 
     # testing
     # tokenizer = AutoTokenizer.from_pretrained(output_dir)#model_id)
-    tokenizer = AutoTokenizer.from_pretrained(output_dir,local_files_only=True)#LlamaTokenizer.from_pretrained(output_dir,local_files_only=True)
+    # if model_id =="openlm-research/open_llama_3b_v2":
+    tokenizer = LlamaTokenizer.from_pretrained(output_dir,local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(
         output_dir,
         torch_dtype=torch.bfloat16,
@@ -220,7 +261,7 @@ if True:  # OOD
         local_files_only=True
     )
     tokenizer.padding_side='left'
-    # tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.pad_token = tokenizer.eos_token
     model.eval()
     model.config.use_cache = True
     model=torch.compile(model)
@@ -247,8 +288,8 @@ if True:  # OOD
     list_passk_8=[]
     list_passk_9=[]
     list_passk_10=[]
-
     list_puzzle=[]
+    list_all_puzzle=[]
 
     bs = args.arg_bs_test
     with torch.no_grad():
@@ -283,6 +324,9 @@ if True:  # OOD
 
 
             for i in range(len(list_puzzle_gen)): # along the bs
+                dic_save={}
+                list_raw_puzzle = []
+                list_proc_puzzle =[]
                 for j in range(len(list_puzzle_gen[i])):
                     prompt_f =list_prompt_f[i]
                     g_firstline = list_prompt_g_firstline[i]
@@ -292,12 +336,19 @@ if True:  # OOD
                     test_fg= prompt_f+extract_g 
                     list_puzzle_gen[i][j] = test_fg
                     list_puzzle.append(test_fg)
-                    if j<1:
-                        print("\n-------------------\n")
-                        print(test_fg)
+                    list_proc_puzzle.append(test_fg)
+                    list_raw_puzzle.append(prompt_f+list_puzzle_gen[i][j])
+                dic_save["raw_puzzle"]=list_raw_puzzle
+                dic_save["process_puzzle"]=list_proc_puzzle
+                
+                    # if j<1:
+                    #     print("\n-------------------\n")
+                    #     print(test_fg)
                     
                 
-                list_valid_puzzles = judge_parallel(list_puzzle_gen[i])                    
+                list_valid_puzzles = judge_parallel(list_puzzle_gen[i])
+                dic_save["list_valid"]=list_valid_puzzles                 
+                list_all_puzzle.append(dic_save)    
 
                 cor_puz= np.sum(list_valid_puzzles)
 
@@ -315,8 +366,8 @@ if True:  # OOD
                 list_passk_9.append(pass_at_k(n_sample, n_correct, k=9))
                 list_passk_10.append(pass_at_k(n_sample, n_correct, k=10))
             print(f"correct puzzles: {int(np.sum(list_passk))}/{len(list_passk)}")
-            with open(name_json+".json", "w") as outfile:
-                json.dump(list_passk,outfile)
+            # with open(name_json+".json", "w") as outfile:
+            #     json.dump(list_passk,outfile)
 
         print(f"pass 1: {np.sum(list_passk_1)}/{len(list_passk)}")
         print(f"pass 3: {np.sum(list_passk_3)}/{len(list_passk)}")
@@ -335,8 +386,9 @@ if True:  # OOD
         dic_passk["pass_10"]= float(np.sum(list_passk_10))
 
         json_content=[dic_passk]
-        with open(name_json+"_e"+str(num_train_epochs)+".json", "w") as outfile:
+        with open(name_json+"_e"+str(num_train_epochs)+"_seed_"+seed+".json", "w") as outfile:
             json.dump(json_content,outfile,indent=4)
-        wandb.log(dic_passk)
+        with open(name_json_sol+"_e"+str(num_train_epochs)+"_seed_"+seed+".json", "w") as outfile:
+            json.dump(list_all_puzzle,outfile,indent=4)
+        
 
-wandb.finish()
