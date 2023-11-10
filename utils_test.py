@@ -316,7 +316,7 @@ def preprocessing_P3_no_test(split: str = "train", n_token_max: int =512, path=N
     os.environ['HF_DATASETS_CACHE'] = "/projets/flowers/julien/hf/datasets"
     os.environ['TRANSFORMERS_CACHE'] = "/projets/flowers/julien/models/"
     from transformers import AutoTokenizer
-    model_id="facebook/opt-1.3b"#"codellama/CodeLlama-7b-Python-hf"
+    model_id="/gpfsscratch/rech/imi/uqv82bm/evaluate_model/hf/models/open_llama_3b_v2"#"facebook/opt-1.3b"#"codellama/CodeLlama-7b-Python-hf"
     tokenizer = AutoTokenizer.from_pretrained(model_id,trust_remote_code=True)
     import sys 
     sys.set_int_max_str_digits(10_000)
