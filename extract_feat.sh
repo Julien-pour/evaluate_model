@@ -12,8 +12,8 @@
 #SBATCH --output=./out/out_finetune_llama3b-%A_%a.out
 #SBATCH --error=./out/out_finetune_llama3b-%A_%a.out
 module purge
-# module load cpuarch/amd
+module load cpuarch/amd
 module load pytorch-gpu/py3/2.0.1
 cd $SCRATCH/evaluate_model 
 
-python extract_feat.py -z $SCRATCH/evaluate_model/ -m ${SLURM_ARRAY_TASK_ID}
+python extract_feat.py -z $SCRATCH/evaluate_model/ -m ${SLURM_ARRAY_TASK_ID} -f full
