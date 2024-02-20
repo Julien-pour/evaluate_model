@@ -40,18 +40,14 @@ os.environ["MBPP_OVERRIDE_PATH"] = args.base_path+ "eval_plus_data/MbppPlus-v0.1
 
 # from key import wandb_key   
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM,TrainingArguments,LlamaTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
-from datasets import load_dataset,concatenate_datasets
 from tqdm import tqdm
 import json
-from datasets import Dataset
 from utils_eval_plus import evaluate_plus
 
 # from peft import LoraConfig
-import numpy as np
-from utils_test import return_full_prompt,prompt_train,pass_at_k,Prompt_Intstruction,judge_parallel,preprocessing_P3_no_test,just_remove_example_in_docstring
+from utils_test import return_full_prompt,pass_at_k
 
 
 if args.arg_gpu == "v100":
