@@ -239,9 +239,17 @@ assert f(g()) == True
 ```
 {pb}
 ```'''
-def return_full_prompt(model_id,pb):
-    """return the full prompt for a given model_id and a given problem""" 
-    instruction=Prompt_Intstruction.format(pb=pb)
+Prompt_Intstruction_evalplus = '''You need to write the entire code for the following problem in a code blocks (i.e.,within “```”):\n{pb}'''
+def return_full_prompt(model_id,pb,mode="P3"):
+    """return the full prompt for a given model_id and a given problem"""
+    if mode == "P3": 
+        instruction=Prompt_Intstruction.format(pb=pb)
+    elif mode == "humaneval":
+        instruction = Prompt_Intstruction_evalplus.format(pb=pb)
+    elif mode == "mbpp":
+        instruction = Prompt_Intstruction_evalplus.format(pb=pb)
+    else: 
+        raise ValueError("mode should be P3, humaneval or mbpp")
     return return_prompt_format(model_id).format(instruction=instruction)
 
 

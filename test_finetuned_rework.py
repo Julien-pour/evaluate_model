@@ -36,8 +36,11 @@ parser.add_argument("-l", "--arg_sol", type=bool, help=" train just on sol or no
 parser.add_argument("-k", "--arg_k", type=int, help="k in pass@k",default=10)
 parser.add_argument("-g", "--arg_gpu", type=str, help="GPU use",default="a100")
 parser.add_argument("-a", "--accum_step", type=int, help="number of accumulation step",default=1)
+parser.add_argument("--test_base_model", type=str, help="just test base model",default="False")
+parser.add_argument("--test_base_model_on_train", type=str, help="just test_base_model_on_train",default="False")
 
 args = parser.parse_args()
+
 if args.arg_gpu == "v100":
     type_use = torch.float16
     bf16=False
@@ -61,6 +64,10 @@ if args.arg_mode=="train":
     train_model=True
     eval_model=False 
 if args.arg_mode=="eval":
+    train_model=False
+    eval_model=True 
+
+if args.test_base_model=="True":
     train_model=False
     eval_model=True 
 
@@ -125,6 +132,9 @@ with open(path_train, encoding="utf-8") as f:
     dataset = json.load(f)
 to_remove=["emb","target_skills","puzzle_history","quality","description","is_valid","is_valid_explanation"]
 for i in dataset:
+    if args.test_base_model_on_train=="True" and i["idx_generation"]!=-1:
+        del i
+        continue
     for j in to_remove:
         if j in i:
             del i[j]
@@ -149,6 +159,9 @@ print("path_load_model",path_load_model)
 
 name_json_save_all = args.base_path+"save_results/passk.json"#.split("/")[1]
 run_name = name+"e_"+str(num_train_epochs)+"_"+str(seed)
+if args.test_base_model_on_train=="True":
+    run_name = model_id+"_traine_"+str(num_train_epochs)+"_"+str(seed)
+
 if not os.path.exists(name_json_save_all):
     # Create a new JSON file with some sample data
     sample_data = {}
@@ -295,6 +308,9 @@ if eval_model:  # OOD
 
 
     # testing
+    if args.test_base_model=="True":
+        output_dir = hf_dir+model_id
+        run_name = model_id+"_base"
     tokenizer = AutoTokenizer.from_pretrained(output_dir,local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(
         output_dir,
