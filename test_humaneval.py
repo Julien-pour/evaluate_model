@@ -130,8 +130,12 @@ hf_dir=args.path_model_base
 path_load_model=hf_dir+model_id
 print("path_load_model",path_load_model)
 
-
-name_json_save_all = args.base_path+"save_results/passk_human_eval.json"#.split("/")[1]
+if args.dataset == "humaneval":
+    name_json_save_all = args.base_path+"save_results/passk_human_eval.json"#.split("/")[1]
+elif args.dataset == "mbpp":
+    name_json_save_all = args.base_path+"save_results/passk_mbpp.json"#.split("/")[1]
+else:
+    raise ValueError("Unknown dataset")
 run_name = name+"e_"+str(num_train_epochs)+"_"+str(seed)
 
 
@@ -191,9 +195,15 @@ if args.dataset == "humaneval":
 
     from evalplus.data import get_human_eval_plus, write_jsonl
     dic_puzzles = get_human_eval_plus()
+    print("=======================")
+    print("/!\ testing on humaneval /!\ ")
+    print("=======================")
 elif args.dataset == "mbpp":
     from evalplus.data import get_mbpp_plus, write_jsonl
     dic_puzzles = get_mbpp_plus()
+    print("=======================")
+    print("/!\ testing on mbpp /!\ ")
+    print("=======================")
 else:
     raise ValueError("Unknown dataset")
 
