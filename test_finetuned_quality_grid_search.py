@@ -18,7 +18,8 @@ from time import sleep
 
 # from peft import LoraConfig
 import numpy as np
-from utils_test import return_full_prompt,prompt_train,pass_at_k,Prompt_Intstruction,judge_parallel,modify_docstring
+
+from utils_test import return_full_prompt,prompt_train,pass_at_k,judge_parallel,modify_docstring
 
 parser = argparse.ArgumentParser(description="Example script for argument parsing")
 parser.add_argument("-z", "--base_path", type=str, help="path to git project evaluate_model",default="/media/data/flowers/evaluate_model/")
@@ -44,6 +45,9 @@ parser.add_argument("--lr", type=float, help="learning rate")
 parser.add_argument("--ratio", type=float, help="how much data in % to keep with the highest quality",default=1.0)
 parser.add_argument("--random", type=str, help="if ratio<1. sample ratio in % of total data randomly",default="False")
 parser.add_argument("--description", type=str, help="use description when training",default="False")
+
+
+n_max_token=1360 #8*
 
 
 args = parser.parse_args()
@@ -116,7 +120,6 @@ os.environ['WANDB_CACHE_DIR'] = args.base_path+"wandb_cache/"
 # os.environ['TRANSFORMERS_CACHE'] = args.base_path+"hf/models"
 
 os.environ['TOKENIZERS_PARALLELISM'] = "True"
-n_max_token=1360 #8*
 
 
 path_train_idx = args.arg_path_idx
@@ -151,7 +154,7 @@ with open(path_train, encoding="utf-8") as f:
     dataset = json.load(f)
 
 
-to_remove=["emb","target_skills","puzzle_history","quality","description","is_valid","is_valid_explanation"]
+to_remove=["emb","target_skills","puzzle_history","quality","is_valid","is_valid_explanation"]
 for i in dataset:
     # if args.test_base_model_on_train=="True" and i["idx_generation"]!=-1:
     #     del i
@@ -161,7 +164,7 @@ for i in dataset:
             del i[j]
 from datasets import Dataset
 
-def formatting_prompts_func(example,prompt_solve_puzzle=prompt_train,use_description=use_description):
+def formatting_prompts(example,prompt_solve_puzzle=prompt_train,use_description=use_description):
     """formatting function for training"""
     output_texts = []
     # print(len(example['program_str']))
@@ -174,22 +177,53 @@ def formatting_prompts_func(example,prompt_solve_puzzle=prompt_train,use_descrip
             if use_description:
                 prompt_f=modify_docstring(prompt_f, "f", example[i]['description'])
 
-            full_prompt = prompt_train.format(pb=prompt_f,g=prompt_g)#,g_firstline=prompt_g)
+            full_prompt = prompt_solve_puzzle.format(pb=prompt_f,g=prompt_g)#,g_firstline=prompt_g)
             output_texts.append(full_prompt)
-        except:
+        except Exception as e:
+            print("error: ",e)
             print("error in formatting_prompts_func idx",i)
             print(example[i]['program_str'])
             print("======================")
             print(puzzle)
     return output_texts
 
-out_dataset=formatting_prompts_func(dataset)
-tokenizer = AutoTokenizer.from_pretrained(path_load_model,local_files_only=False)
+out_dataset=formatting_prompts(dataset)
 
+def formatting_prompts_func(example,prompt_solve_puzzle=prompt_train,use_description=use_description):
+    """formatting function for training 
+     ====== idk why the index need to be in reverse order ======
+     """
+    output_texts = []
+    # print(len(example['program_str']))
+    for i in range(len(example['program_str'])):
+
+        puzzle= example['program_str'][i]
+        try:
+            prompt_f=puzzle.split("def g(")[0]
+            prompt_g= "def g(" + puzzle.split("def g(")[1]
+            if use_description:
+                prompt_f=modify_docstring(prompt_f, "f", example['description'][i])
+
+            full_prompt = prompt_solve_puzzle.format(pb=prompt_f,g=prompt_g)#,g_firstline=prompt_g)
+            output_texts.append(full_prompt)
+        except Exception as e:
+            print("error: ",e)
+            print("error in formatting_prompts_func idx",i)
+            print(example['program_str'][i])
+            print("======================")
+            print(puzzle)
+            raise e
+    print("len output_texts",len(output_texts))
+    return output_texts
+tokenizer = AutoTokenizer.from_pretrained(path_load_model,local_files_only=False)
+print(f"len process dataset = {len(out_dataset)} after removing data > {n_max_token} tokens")   
+
+
+assert len(out_dataset)==len(dataset)
 inputs = tokenizer(out_dataset, padding=False)  # maybe need to batch that
 list_tok = [len(inputs.input_ids[i]) for i in range(len(inputs.input_ids))]
 
-to_remove = np.array(list_tok) >= n_max_token
+to_remove = np.array(list_tok) >= n_max_token-100 #100 for prompt
 
 sorted_data = sorted(dataset, key=lambda x: x['fitness'], reverse=True)
 sorted_data = [data for data, remove in zip(dataset, to_remove) if not remove]
@@ -202,7 +236,7 @@ if args.random=="True":
 if abs(data_ratio-1.0)<1e-3:
     dataset = sorted_data
 else:
-    dataset = dataset[:int(len(dataset)*data_ratio)]
+    dataset = sorted_data[:int(len(sorted_data)*data_ratio)]
         
 
 dataset = Dataset.from_list(dataset)
@@ -213,6 +247,7 @@ dataset = Dataset.from_list(dataset)
 
 
 cat_datasets = dataset.shuffle(seed=42) 
+print("len dataset",len(dataset))
 
 
 
@@ -287,7 +322,7 @@ if train_model:
         gradient_checkpointing=False,
         logging_steps=1,
         output_dir="outputs",
-        optim="adamw_torch",#"paged_adamw_8bit",#"paged_adamw_32bit",
+        optim="adamw_torch",#"adamw_torch",#"paged_adamw_8bit",#"paged_adamw_32bit",
         max_grad_norm=0.3,
         # group_by_length=True,
         # do_eval=True,

@@ -7,6 +7,33 @@ import json
 import re
 import os
 
+
+def modify_docstring(source_code, func_name, additional_docstring):
+    # Parse the Python code into an AST
+    tree = ast.parse(source_code)
+    
+    # Function to modify the docstring of a specific function
+    class DocstringModifier(ast.NodeTransformer):
+        def visit_FunctionDef(self, node):
+            # Check if this is the function we want to modify
+            if node.name == func_name:
+                if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Str):
+                    # Function has a docstring, append to it
+                    node.body[0].value.s += "\n    " + additional_docstring
+                else:
+                    # No docstring, insert one
+                    node.body.insert(0, ast.Expr(value=ast.Str(s=additional_docstring)))
+            return node
+
+    # Apply the modifier to the AST
+    modifier = DocstringModifier()
+    modified_tree = modifier.visit(tree)
+    ast.fix_missing_locations(modified_tree)
+
+    # Convert the modified AST back to Python code
+    modified_code = ast.unparse(modified_tree) #astor.to_source(modified_tree)#
+    return modified_code
+
 def test_puzzle(test_fg):
     test_fg= "from typing import *\n"+test_fg
     try:
